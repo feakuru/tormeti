@@ -28,7 +28,7 @@ jobs:
         pipenv install --dev --ignore-pipfile
     - name: Code style check with flake8
       run: |
-        pipenv run flake8 orm/
+        pipenv run flake8 .
     - name: Type check with mypy
       run: |
         pipenv run mypy --strict orm/

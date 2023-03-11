@@ -1,7 +1,16 @@
 import datetime
 import inspect
 import sqlite3
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, TypeVar, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from orm.field import Field, ForeignKey
 

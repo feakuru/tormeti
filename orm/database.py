@@ -25,6 +25,9 @@ SQL_TEMPLATES = {
     'create_table': {
         'sqlite': 'CREATE TABLE {table_name} ({fields}{constraints});',
     },
+    'select': {
+        'sqlite': 'SELECT * FROM {table_name} WHERE {placeholders}',
+    },
     'insert': {
         'sqlite': (
             'INSERT INTO {table_name} '
@@ -111,6 +114,13 @@ class Database:
             constraints=(', ' + ', '.join(constraints)) if constraints else '',
         )
 
+    def _get_select_one_row_statement(
+        self,
+        id: int,
+        model_cls: Type['Model'],
+    ) -> str:
+        raise NotImplementedError
+
     def _get_update_existing_row_statement(
         self,
         instance: 'Model',
@@ -124,7 +134,6 @@ class Database:
         raise NotImplementedError
 
     def create_table(self, model: Type['Model']):
-        print(f'boutta execute that {self._get_create_table_statement(model)}')
         self._execute_sql(self._get_create_table_statement(model))
 
     def create_tables(self, models: List[Type['Model']]):
@@ -132,7 +141,13 @@ class Database:
             self.create_table(model)
 
     def get(self, id: int, model_cls: Type[T]) -> T:
-        raise NotImplementedError
+        query = self._get_select_one_row_statement(
+            id=id,
+            model_cls=model_cls,
+        )
+        result = self._execute_sql(query)[0]
+        assert isinstance(result, sqlite3.Row)
+        return model_cls(**dict(result))
 
     def save(self, instance: 'Model') -> 'Model':
         if not instance.id:
@@ -151,18 +166,30 @@ class SQLiteDatabase(Database):
         super().__init__(db_url)
         self.filename = db_url.removeprefix(f'{self.url_prefix}://')
         self.conn = sqlite3.connect(self.filename)
+        self.conn.row_factory = sqlite3.Row
 
     def _execute_sql(
         self,
         sql_statement: str,
         values: Optional[List[Any]] = None,
-    ) -> Union[int, List[Tuple[Any]]]:
+    ) -> Union[int, List[sqlite3.Row]]:
         cursor = self.conn.cursor()
         if values:
             result = cursor.execute(sql_statement, values)
         else:
             result = cursor.execute(sql_statement)
         return result.fetchall() or cursor.lastrowid or cursor.rowcount
+
+    def _get_select_one_row_statement(
+        self,
+        id: int,
+        model_cls: Type['Model'],
+    ) -> str:
+        query = SQL_TEMPLATES['select']['sqlite'].format(
+            table_name=model_cls.table_name(),
+            placeholders=f'id={id}',
+        )
+        return query
 
     def _get_update_existing_row_statement(
         self,

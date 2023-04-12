@@ -9,7 +9,9 @@ class Field:
 
 
 class ForeignKey(Field):
-    pass
+    def __init__(self, python_type: Type) -> None:
+        super().__init__(python_type)
+        self.id = Field(int)  # TODO: steal all fields from model
 
 
 class ManyToMany(Field):

@@ -18,7 +18,8 @@ class TestModel(unittest.TestCase):
         self.db.create_tables([Author, Book])
 
     def test_model_create_table_simple(self):
-        # this is to test that camelcase is well converted to snake case
+        # this is mainly to test that camelcase
+        # is correctly converted to snake case
         class BookHTTPAuthor(Model):
             name = Field(str)
             year_born = Field(int)
@@ -66,7 +67,7 @@ class TestModel(unittest.TestCase):
         author = Author(name='J. R. R. Tolkien', age=56)
         author.save(db=self.db)
 
-        author.age = 57
+        author.age = 57  # type:ignore # TODO please type checkers
         author.save(db=self.db)
 
         author_from_db = Author.get(id=author.id, db=self.db)

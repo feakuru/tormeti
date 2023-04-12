@@ -1,8 +1,11 @@
+import inspect
 import re
 from typing import Any, Dict, TYPE_CHECKING, Type, TypeVar
 
+from orm.field import Field, ForeignKey
+
 if TYPE_CHECKING:
-    from .database import Database
+    from orm.database import Database
 
 TABLE_NAME_PATTERNS = [
     re.compile(r'(.)([A-Z][a-z]+)'),
@@ -27,12 +30,40 @@ class Model:
         self._data = {
             'id': None
         }
+        fields = [
+            member[0]
+            for member in inspect.getmembers(self.__class__)
+            if isinstance(member[1], Field)
+        ]
         for key, value in kwargs.items():
-            self._data[key] = value
+            if key in fields or key == 'id':
+                self._data[key] = value
+            elif key.removesuffix('_id') in fields:
+                self._data[key] = value
+            else:
+                raise ValueError(f'field "{key}" not found in {fields=}')
+
+    def __eq__(self, __value: object) -> bool:
+        return (
+            isinstance(__value, self.__class__)
+            and __value._data == self._data
+        )
 
     def __getattribute__(self, __name: str) -> Any:
         _data = object.__getattribute__(self, '_data')
-        if __name in _data:
+        if __name in _data or f'{__name}_id' in _data:
+            if __name != 'id':
+                field = object.__getattribute__(self, __name)
+                if isinstance(field, ForeignKey):
+                    if not self.__db:
+                        raise ValueError(
+                            'no knowledge of database detected for this'
+                            'instance. try saving it first'
+                        )
+                    return field.python_type.get(
+                        id=_data[f'{__name}_id'],
+                        db=self.__db,
+                    )
             return _data[__name]
         return object.__getattribute__(self, __name)
 
@@ -46,7 +77,10 @@ class Model:
 
     @classmethod
     def get(cls: Type[T], id: int, db: 'Database') -> T:
-        return db.get(id=id, model_cls=cls)
+        instance = db.get(id=id, model_cls=cls)
+        instance.__db = db
+        return instance
 
     def save(self, db: 'Database') -> 'Model':
+        self.__db = db
         return db.save(self)

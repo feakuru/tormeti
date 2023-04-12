@@ -24,7 +24,7 @@ SQL_TEMPLATES = {
         'sqlite': 'CREATE TABLE {table_name} ({fields}{constraints});',
     },
     'select': {
-        'sqlite': 'SELECT * FROM {table_name} WHERE {placeholders}',
+        'sqlite': 'SELECT * FROM {table_name} WHERE {placeholders};',
     },
     'insert': {
         'sqlite': (
@@ -34,7 +34,10 @@ SQL_TEMPLATES = {
     },
     'update': {
         'sqlite': 'UPDATE {table_name} SET {fields} WHERE id = ?;',
-    }
+    },
+    'delete': {
+        'sqlite': 'DELETE FROM {table_name} WHERE {placeholders};',
+    },
 }
 PYTHON_TYPE_TO_SQL_TYPE = {
     'sqlite': {
@@ -73,6 +76,15 @@ PYTHON_TYPE_TO_SQL_TYPE = {
 class Database:
     db_url: str
     url_prefix: str
+
+    class TooManyResultsReturned(Exception):
+        pass
+
+    class ModelInstanceHasNoID(Exception):
+        pass
+
+    class UnexpectedResultType(Exception):
+        pass
 
     def __init__(self, db_url: str) -> None:
         if not db_url.startswith(self.url_prefix):
@@ -137,6 +149,12 @@ class Database:
     ) -> Tuple[str, List]:
         raise NotImplementedError
 
+    def _get_delete_existing_row_statement(
+        self,
+        model: 'Model',
+    ) -> str:
+        raise NotImplementedError
+
     def create_table(self, model: Type['Model']):
         self._execute_sql(self._get_create_table_statement(model))
 
@@ -149,8 +167,14 @@ class Database:
             id=id,
             model_cls=model_cls,
         )
-        result = self._execute_sql(query)[0]
-        return model_cls(**dict(result))
+        result = self._execute_sql(query)
+        if not isinstance(result, list):
+            raise self.UnexpectedResultType()
+        if len(result) > 1:
+            raise self.TooManyResultsReturned()
+        elif len(result) < 1:
+            raise model_cls.DoesNotExist
+        return model_cls(**dict(result[0]))
 
     def save(self, instance: 'Model') -> 'Model':
         if not instance.id:
@@ -160,3 +184,11 @@ class Database:
             query, values = self._get_update_existing_row_statement(instance)
             self._execute_sql(query, values)
         return instance
+
+    def delete(self, instance: 'Model') -> List:
+        if not instance.id:
+            raise self.ModelInstanceHasNoID()
+        else:
+            query = self._get_delete_existing_row_statement(instance)
+            result = self._execute_sql(query)
+        return result

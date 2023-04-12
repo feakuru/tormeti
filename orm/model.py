@@ -1,6 +1,6 @@
 import inspect
 import re
-from typing import Any, Dict, TYPE_CHECKING, Type, TypeVar
+from typing import Any, Dict, TYPE_CHECKING, Optional, Type, TypeVar
 
 from orm.field import Field, ForeignKey
 
@@ -18,6 +18,9 @@ T = TypeVar('T', bound='Model')
 class Model:
     id: int
     _data: Dict
+
+    class DoesNotExist(Exception):
+        pass
 
     @classmethod
     def table_name(cls) -> str:
@@ -57,8 +60,8 @@ class Model:
                 if isinstance(field, ForeignKey):
                     if not self.__db:
                         raise ValueError(
-                            'no knowledge of database detected for this'
-                            'instance. try saving it first'
+                            'No knowledge of database detected for this'
+                            'instance. Try saving it first'
                         )
                     return field.python_type.get(
                         id=_data[f'{__name}_id'],
@@ -77,10 +80,21 @@ class Model:
 
     @classmethod
     def get(cls: Type[T], id: int, db: 'Database') -> T:
-        instance = db.get(id=id, model_cls=cls)
+        try:
+            instance = db.get(id=id, model_cls=cls)
+        except db.UnexpectedResultType as exc:
+            raise cls.DoesNotExist() from exc
         instance.__db = db
         return instance
 
     def save(self, db: 'Database') -> 'Model':
         self.__db = db
-        return db.save(self)
+        saved = db.save(self)
+        self.id = saved.id
+        return saved
+
+    def delete(self, db: Optional['Database'] = None):
+        db = db or self.__db
+        if not db:
+            raise ValueError('Could not detect database.')
+        return db.delete(self)

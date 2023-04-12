@@ -1,4 +1,6 @@
 import unittest
+import pytest
+
 from orm import SQLiteDatabase, Model, Field, ForeignKey
 
 
@@ -72,6 +74,14 @@ class TestModel(unittest.TestCase):
 
         author_from_db = Author.get(id=author.id, db=self.db)
         self.assertEqual(author_from_db.age, 57)
+
+    def test_delete_existing_instance(self):
+        author = Author(name='J. R. R. Tolkien', age=56)
+        author.save(db=self.db)
+
+        author.delete()
+        with pytest.raises(Author.DoesNotExist):
+            _ = Author.get(id=author.id, db=self.db)
 
     def test_get_by_id(self):
         author = Author(name='J. R. R. Tolkien', age=56)

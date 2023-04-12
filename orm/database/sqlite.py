@@ -32,13 +32,13 @@ class SQLiteDatabase(Database):
         self,
         sql_statement: str,
         values: Optional[List[Any]] = None,
-    ) -> Union[int, List[sqlite3.Row]]:
+    ) -> Union[int, List[sqlite3.Row], None]:
         cursor = self.conn.cursor()
         if values:
             result = cursor.execute(sql_statement, values)
         else:
             result = cursor.execute(sql_statement)
-        return result.fetchall() or cursor.lastrowid or cursor.rowcount
+        return result.fetchall() or cursor.lastrowid
 
     def _get_select_one_row_statement(
         self,
@@ -77,3 +77,13 @@ class SQLiteDatabase(Database):
             placeholders=placeholders,
         )
         return query, values
+
+    def _get_delete_existing_row_statement(
+        self,
+        model: 'Model',
+    ) -> str:
+        query = SQL_TEMPLATES['delete']['sqlite'].format(
+            table_name=model.__class__.table_name(),
+            placeholders=f'id={model.id}',
+        )
+        return query

@@ -33,7 +33,7 @@ SQL_TEMPLATES = {
         ),
     },
     'update': {
-        'sqlite': 'UPDATE {table_name} SET {fields} WHERE id = ?;',
+        'sqlite': 'UPDATE {table_name} SET {fields} WHERE {pk_fieldname} = ?;',
     },
     'delete': {
         'sqlite': 'DELETE FROM {table_name} WHERE {placeholders};',
@@ -80,7 +80,7 @@ class Database:
     class TooManyResultsReturned(Exception):
         pass
 
-    class ModelInstanceHasNoID(Exception):
+    class ModelInstanceHasNoPK(Exception):
         pass
 
     class UnexpectedResultType(Exception):
@@ -111,18 +111,40 @@ class Database:
         return PYTHON_TYPE_TO_SQL_TYPE[self.url_prefix][python_type]
 
     def _get_create_table_statement(self, model: Type['Model']) -> str:
-        fields: List[Tuple[str, str]] = [
-            ('id', 'INTEGER PRIMARY KEY AUTOINCREMENT')
-        ]
+        fields: List[Tuple[str, str]] = []
         constraints = []
+        primary_key_found = False
         for name, field in inspect.getmembers(model):
             if isinstance(field, ForeignKey):
-                fields.append((f'{name}_id', 'INTEGER'))
+                fields.append((f'{name}_pk', 'INTEGER'))
                 constraints.append(
-                    f'FOREIGN KEY({name}_id) REFERENCES {name}(id)',
+                    f'FOREIGN KEY({name}_pk) REFERENCES '
+                    f'{name}({field.pk_field_name})',
                 )
             elif isinstance(field, Field):
-                fields.append((name, self.get_sql_type(field.python_type)))
+                if field.primary_key:
+                    fields.insert(
+                        0,
+                        (
+                            name,
+                            self.get_sql_type(field.python_type)
+                            + ' PRIMARY KEY AUTOINCREMENT'
+                        )
+                    )
+                    primary_key_found = True
+                else:
+                    fields.insert(
+                        0,
+                        (name, self.get_sql_type(field.python_type)),
+                    )
+        if not primary_key_found:
+            fields.insert(
+                0,
+                (
+                    'pk',
+                    self.get_sql_type(int) + ' PRIMARY KEY AUTOINCREMENT'
+                ),
+            )
 
         return SQL_TEMPLATES['create_table'][self.url_prefix].format(
             table_name=model.table_name(),
@@ -132,8 +154,9 @@ class Database:
 
     def _get_select_one_row_statement(
         self,
-        id: int,
         model_cls: Type['Model'],
+        pk: Any = None,
+        **kwargs,
     ) -> str:
         raise NotImplementedError
 
@@ -162,11 +185,18 @@ class Database:
         for model in models:
             self.create_table(model)
 
-    def get(self, id: int, model_cls: Type[T]) -> T:
-        query = self._get_select_one_row_statement(
-            id=id,
-            model_cls=model_cls,
-        )
+    def get(self, model_cls: Type[T], pk: Any = None, **kwargs) -> T:
+        if pk is not None:
+            query = self._get_select_one_row_statement(
+                pk=pk,
+                model_cls=model_cls,
+                **kwargs,
+            )
+        else:
+            query = self._get_select_one_row_statement(
+                model_cls=model_cls,
+                **kwargs,
+            )
         result = self._execute_sql(query)
         if not isinstance(result, list):
             raise self.UnexpectedResultType()
@@ -177,18 +207,19 @@ class Database:
         return model_cls(**dict(result[0]))
 
     def save(self, instance: 'Model') -> 'Model':
-        if not instance.id:
+        if instance.pk_field.field_name not in instance._data:
             query, values = self._get_insert_new_row_statement(instance)
-            instance.id = self._execute_sql(query, values)
+            if instance.pk_field.field_name is None:
+                raise ValueError('field_name not defined on pk field')
+            pk_value = self._execute_sql(query, values)
+            instance._data[instance.pk_field.field_name] = pk_value
         else:
             query, values = self._get_update_existing_row_statement(instance)
             self._execute_sql(query, values)
         return instance
 
     def delete(self, instance: 'Model') -> List:
-        if not instance.id:
-            raise self.ModelInstanceHasNoID()
-        else:
-            query = self._get_delete_existing_row_statement(instance)
-            result = self._execute_sql(query)
-        return result
+        if not instance.pk:
+            raise self.ModelInstanceHasNoPK()
+        query = self._get_delete_existing_row_statement(instance)
+        return self._execute_sql(query)

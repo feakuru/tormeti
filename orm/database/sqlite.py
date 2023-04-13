@@ -42,12 +42,20 @@ class SQLiteDatabase(Database):
 
     def _get_select_one_row_statement(
         self,
-        id: int,
         model_cls: Type['Model'],
+        pk: Any = None,
+        **kwargs,
     ) -> str:
         query = SQL_TEMPLATES['select']['sqlite'].format(
             table_name=model_cls.table_name(),
-            placeholders=f'id={id}',
+            placeholders=(
+                f'{model_cls().pk_field.field_name}={pk}'
+                if pk
+                else ', '.join(
+                    f'{field}={value}'
+                    for field, value in kwargs.items()
+                )
+            ),
         )
         return query
 
@@ -55,13 +63,18 @@ class SQLiteDatabase(Database):
         self,
         instance: 'Model',
     ) -> Tuple[str, List]:
-        fields = ','.join([f"{k} = ?" for k in instance._data.keys()])
-        values = list(instance._data.values())
-        values.append(instance.id)
+        data_without_pk = {
+            k: v for k, v in instance._data.items()
+            if k != instance.pk_field.field_name
+        }
+        fields = ','.join([f"{k} = ?" for k in data_without_pk.keys()])
+        values = list(data_without_pk.values())
         query = SQL_TEMPLATES['update']['sqlite'].format(
             table_name=instance.table_name(),
             fields=fields,
+            pk_fieldname=instance._pk_field.field_name,
         )
+        values.append(instance.pk)
         return query, values
 
     def _get_insert_new_row_statement(
@@ -84,6 +97,6 @@ class SQLiteDatabase(Database):
     ) -> str:
         query = SQL_TEMPLATES['delete']['sqlite'].format(
             table_name=model.__class__.table_name(),
-            placeholders=f'id={model.id}',
+            placeholders=f'{model.pk_field.field_name}={model.pk}',
         )
         return query
